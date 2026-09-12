@@ -425,10 +425,11 @@ function action_getWeek_(p) {
 function action_saveEntry_(p) {
   requireAuth_(p.token);
   var now = new Date().toISOString();
-  var retrofitId = getRetrofitProjectId_();
-  if (String(p.projectId) === String(retrofitId)) {
-    throw new Error('Retrofit hours are assigned from the Retrofit / traffic-light panel, not the regular day grid.');
-  }
+  // Retrofit is a normal selectable project here too — crew who actually did
+  // the traffic-light work log their hours directly, same as any project.
+  // The Retrofit tab separately hands out whatever budget is left over
+  // (traffic lights x hours-per-light, minus hours already logged directly)
+  // to other crew, sourced from their other-project hours that week.
   if (p.entryId) {
     var rowIndex = findRowById_(SHEET_ENTRIES, 'EntryID', p.entryId);
     if (rowIndex === -1) throw new Error('Entry not found.');
