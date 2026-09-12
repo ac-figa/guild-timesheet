@@ -412,6 +412,57 @@ input:focus, select:focus { outline: 2px solid var(--primary); outline-offset: 1
 .report-line { padding: 4px 0; }
 .report-empty { color: var(--muted); text-align: center; padding: 40px 0; }
 
+/* ---------------- Manage Crew & Projects tab ---------------- */
+.manage-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .manage-layout { grid-template-columns: 1fr; }
+}
+.manage-col {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+.manage-add-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 18px 0;
+}
+.manage-add-form input[type="text"] { flex: 1 1 140px; }
+.manage-add-form select { flex: 1 1 120px; }
+.manage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.manage-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 6px;
+  border-top: 1px solid var(--border);
+}
+.manage-list li:first-child { border-top: none; }
+.manage-list .pos { color: var(--muted); font-size: 0.85em; margin-left: 6px; }
+.manage-delete-btn {
+  background: none;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  padding: 4px 10px;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+.manage-delete-btn:hover { background: #fdecea; }
+
 @media print {
   .topbar, .tabs, .report-controls, .save-status, #assignment-gap-warnings { display: none !important; }
   .tab-panel { display: none !important; }

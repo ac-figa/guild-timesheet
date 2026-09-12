@@ -43,6 +43,7 @@
       <button class="tab-btn" data-tab="assignments">Assignments</button>
       <button class="tab-btn" data-tab="retrofit">Retrofit / Traffic Lights</button>
       <button class="tab-btn" data-tab="report">Report</button>
+      <button class="tab-btn" data-tab="manage">Crew &amp; Projects</button>
     </nav>
 
     <div id="save-status" class="save-status" hidden></div>
@@ -125,6 +126,35 @@
       <div id="assignment-gap-warnings" class="report-warnings" hidden></div>
       <div id="report-warnings" class="report-warnings" hidden></div>
       <div id="report-output" class="report-output"></div>
+    </section>
+
+    <!-- TAB: MANAGE CREW & PROJECTS -->
+    <section id="tab-manage" class="tab-panel">
+      <div class="manage-layout">
+        <div class="manage-col">
+          <h2>Crew</h2>
+          <p class="muted">Add a new crew member, or remove someone who no longer works here. Removing someone doesn&rsquo;t affect any hours already recorded for them &mdash; it just takes them off the list going forward.</p>
+          <form id="add-crew-form" class="manage-add-form">
+            <input type="text" id="new-crew-first" placeholder="First name" required />
+            <input type="text" id="new-crew-last" placeholder="Last name" required />
+            <select id="new-crew-position"></select>
+            <input type="text" id="new-crew-position-other" placeholder="Position code" hidden />
+            <button type="submit">Add crew member</button>
+          </form>
+          <ul id="manage-crew-list" class="manage-list"></ul>
+        </div>
+
+        <div class="manage-col">
+          <h2>Projects</h2>
+          <p class="muted">Add a new project, or remove one that&rsquo;s finished. Removing a project doesn&rsquo;t affect any hours already recorded against it.</p>
+          <form id="add-project-form" class="manage-add-form">
+            <input type="text" id="new-project-id" placeholder="Project ID (optional)" />
+            <input type="text" id="new-project-label" placeholder="Project name" required />
+            <button type="submit">Add project</button>
+          </form>
+          <ul id="manage-project-list" class="manage-list"></ul>
+        </div>
+      </div>
     </section>
   </div>
 

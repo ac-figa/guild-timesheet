@@ -24,6 +24,11 @@
     currentCrewId: null
   };
 
+  // Every distinct position code seen in the crew list as of this build —
+  // used to populate the Add Crew dropdown. A dad who needs a code not on
+  // this list yet can pick "Other..." and type it in.
+  var POSITION_CODES = ['A1-16.5', 'A2-33.0', 'A3-49.5', 'A5-82.5', 'Est', 'F', 'G', 'Go', 'J', 'J-P', 'L', 'La', 'Lap3', 'Ld', 'Lh', 'Lma', 'Pa', 'Ut1'];
+
   // ---------------------------------------------------------------
   // Date helpers (local time, no UTC surprises)
   // ---------------------------------------------------------------
@@ -180,6 +185,9 @@
       // Remind about any recorded-but-unhoured assignments as soon as the
       // Report tab is opened, not only when Generate is clicked.
       if (btn.dataset.tab === 'report') renderAssignmentGapWarnings();
+      // Always show the current crew/project lists when this tab is opened,
+      // in case something changed elsewhere since it was last rendered.
+      if (btn.dataset.tab === 'manage') renderManageTab();
     });
   });
 
@@ -965,6 +973,130 @@
       // refresh it if it's currently showing someone affected.
       if (state.currentCrewId) renderCrewWeekPanel();
     }).catch(function (err) { showStatus(err.message, 'error'); });
+  }
+
+  // ---------------------------------------------------------------
+  // Manage Crew & Projects tab
+  // ---------------------------------------------------------------
+  var newCrewPositionSelect = document.getElementById('new-crew-position');
+  var newCrewPositionOther = document.getElementById('new-crew-position-other');
+
+  function buildPositionSelect() {
+    newCrewPositionSelect.innerHTML = '';
+    var blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = '(none)';
+    newCrewPositionSelect.appendChild(blank);
+    POSITION_CODES.forEach(function (code) {
+      var opt = document.createElement('option');
+      opt.value = code;
+      opt.textContent = code;
+      newCrewPositionSelect.appendChild(opt);
+    });
+    var other = document.createElement('option');
+    other.value = '__other__';
+    other.textContent = 'Other...';
+    newCrewPositionSelect.appendChild(other);
+  }
+  buildPositionSelect();
+
+  newCrewPositionSelect.addEventListener('change', function () {
+    newCrewPositionOther.hidden = newCrewPositionSelect.value !== '__other__';
+    if (!newCrewPositionOther.hidden) newCrewPositionOther.focus();
+  });
+
+  document.getElementById('add-crew-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var form = e.target;
+    var first = document.getElementById('new-crew-first').value.trim();
+    var last = document.getElementById('new-crew-last').value.trim();
+    if (!first || !last) return;
+    var position = newCrewPositionSelect.value === '__other__'
+      ? newCrewPositionOther.value.trim()
+      : newCrewPositionSelect.value;
+    var name = first + ' ' + last;
+    showStatus('Adding...');
+    api('addCrew', { name: name, position: position }).then(function (res) {
+      state.crew.push(res.crew);
+      state.crewById[res.crew.id] = res.crew;
+      form.reset();
+      newCrewPositionOther.hidden = true;
+      renderManageCrewList();
+      showStatus('Added ' + res.crew.name + '.', 'success');
+    }).catch(function (err) { showStatus(err.message, 'error'); });
+  });
+
+  function renderManageCrewList() {
+    var ul = document.getElementById('manage-crew-list');
+    ul.innerHTML = '';
+    var sorted = state.crew.slice().sort(function (a, b) { return a.name.localeCompare(b.name); });
+    sorted.forEach(function (c) {
+      var li = document.createElement('li');
+      li.innerHTML = '<span>' + escapeHtml(c.name) + '</span><span class="pos">' + escapeHtml(c.position || '') + '</span>';
+      var delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'manage-delete-btn';
+      delBtn.textContent = 'Delete';
+      delBtn.addEventListener('click', function () {
+        if (!confirm('Remove ' + c.name + ' from the crew list?\n\nThis won\'t affect any hours already recorded for them.')) return;
+        api('deleteCrew', { crewId: c.id }).then(function () {
+          state.crew = state.crew.filter(function (x) { return x.id !== c.id; });
+          delete state.crewById[c.id];
+          renderManageCrewList();
+          showStatus('Removed ' + c.name + '.', 'success');
+        }).catch(function (err) { showStatus(err.message, 'error'); });
+      });
+      li.appendChild(delBtn);
+      ul.appendChild(li);
+    });
+  }
+
+  document.getElementById('add-project-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var form = e.target;
+    var id = document.getElementById('new-project-id').value.trim();
+    var label = document.getElementById('new-project-label').value.trim();
+    if (!label) return;
+    showStatus('Adding...');
+    api('addProject', { id: id || undefined, label: label }).then(function (res) {
+      state.projects.push(res.project);
+      state.projectsById[res.project.id] = res.project;
+      form.reset();
+      renderManageProjectList();
+      showStatus('Added ' + res.project.id + '.', 'success');
+    }).catch(function (err) { showStatus(err.message, 'error'); });
+  });
+
+  function renderManageProjectList() {
+    var ul = document.getElementById('manage-project-list');
+    ul.innerHTML = '';
+    var sorted = state.projects.slice().sort(function (a, b) { return a.id.localeCompare(b.id); });
+    sorted.forEach(function (p) {
+      var li = document.createElement('li');
+      li.innerHTML = '<span>' + escapeHtml(p.id) + ' &mdash; ' + escapeHtml(p.label) + (p.isRetrofit ? ' <span class="pos">Retrofit</span>' : '') + '</span>';
+      if (!p.isRetrofit) {
+        var delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'manage-delete-btn';
+        delBtn.textContent = 'Delete';
+        delBtn.addEventListener('click', function () {
+          if (!confirm('Remove project ' + p.id + ' — ' + p.label + '?\n\nThis won\'t affect any hours already recorded against it.')) return;
+          api('deleteProject', { projectId: p.id }).then(function () {
+            state.projects = state.projects.filter(function (x) { return x.id !== p.id; });
+            delete state.projectsById[p.id];
+            renderManageProjectList();
+            showStatus('Removed ' + p.id + '.', 'success');
+          }).catch(function (err) { showStatus(err.message, 'error'); });
+        });
+        li.appendChild(delBtn);
+      }
+      ul.appendChild(li);
+    });
+  }
+
+  function renderManageTab() {
+    renderManageCrewList();
+    renderManageProjectList();
   }
 
   // ---------------------------------------------------------------

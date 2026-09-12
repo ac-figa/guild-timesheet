@@ -428,6 +428,24 @@ function action_addProject_(p) {
   return { ok: true, project: { id: id, label: p.label, isRetrofit: false } };
 }
 
+function action_deleteCrew_(p) {
+  requireAuth_(p.token);
+  var rowIndex = findRowById_(SHEET_CREW, 'ID', p.crewId);
+  if (rowIndex === -1) throw new Error('Crew member not found.');
+  updateRow_(SHEET_CREW, rowIndex, { Active: false });
+  return { ok: true };
+}
+
+function action_deleteProject_(p) {
+  requireAuth_(p.token);
+  var rowIndex = findRowById_(SHEET_PROJECTS, 'ID', p.projectId);
+  if (rowIndex === -1) throw new Error('Project not found.');
+  var row = readTable_(SHEET_PROJECTS).filter(function (r) { return String(r.ID) === String(p.projectId); })[0];
+  if (row && row.IsRetrofit) throw new Error("The Retrofit project can't be deleted.");
+  updateRow_(SHEET_PROJECTS, rowIndex, { Active: false });
+  return { ok: true };
+}
+
 function action_getWeek_(p) {
   requireAuth_(p.token);
   var weekEnding = p.weekEnding;
@@ -627,6 +645,8 @@ function doPost(e) {
       bootstrap: action_bootstrap_,
       addCrew: action_addCrew_,
       addProject: action_addProject_,
+      deleteCrew: action_deleteCrew_,
+      deleteProject: action_deleteProject_,
       getWeek: action_getWeek_,
       saveEntry: action_saveEntry_,
       deleteEntry: action_deleteEntry_,
