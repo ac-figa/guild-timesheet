@@ -120,6 +120,22 @@ function getSheet_(name) {
   return sheet;
 }
 
+// Sheets auto-detects a "YYYY-MM-DD"-looking string written into a cell and
+// silently stores it as a real Date instead of text, even though every write
+// in this file sends a plain string. Left alone, every WeekEnding-based
+// lookup below (===  against a string) would just never match a row that
+// came back as a Date, which is why this normalizes it back to the same
+// "YYYY-MM-DD" string on read, regardless of which form the cell holds.
+function normalizeDateCell_(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    var y = v.getFullYear();
+    var m = ('0' + (v.getMonth() + 1)).slice(-2);
+    var d = ('0' + v.getDate()).slice(-2);
+    return y + '-' + m + '-' + d;
+  }
+  return v;
+}
+
 function readTable_(name) {
   var sheet = getSheet_(name);
   var lastRow = sheet.getLastRow();
@@ -132,7 +148,9 @@ function readTable_(name) {
     var row = values[r];
     var obj = { _row: r + 2 };
     for (var c = 0; c < headers.length; c++) {
-      obj[headers[c]] = row[c];
+      var val = row[c];
+      if (headers[c] === 'WeekEnding') val = normalizeDateCell_(val);
+      obj[headers[c]] = val;
     }
     out.push(obj);
   }
