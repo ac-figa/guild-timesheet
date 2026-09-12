@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Guild Timesheet</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- LOGIN SCREEN -->
+  <div id="login-screen" class="screen">
+    <form id="login-form" class="login-card">
+      <h1>Guild Timesheet</h1>
+      <p class="muted">Enter the password to continue.</p>
+      <input type="password" id="login-password" placeholder="Password" autocomplete="current-password" autofocus />
+      <button type="submit">Log in</button>
+      <p id="login-error" class="error-text" hidden></p>
+    </form>
+  </div>
+
+  <!-- MAIN APP -->
+  <div id="app" class="screen" hidden>
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1>Guild Timesheet</h1>
+      </div>
+      <div class="week-picker">
+        <button id="week-prev" class="icon-btn" title="Previous week">&#8592;</button>
+        <div class="week-picker-main">
+          <label for="week-ending">Week ending (Saturday)</label>
+          <input type="date" id="week-ending" />
+          <div id="week-range" class="muted small"></div>
+        </div>
+        <button id="week-next" class="icon-btn" title="Next week">&#8594;</button>
+        <button id="week-today" class="link-btn">This week</button>
+      </div>
+      <button id="logout-btn" class="link-btn">Log out</button>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="hours">Enter Hours</button>
+      <button class="tab-btn" data-tab="retrofit">Retrofit / Traffic Lights</button>
+      <button class="tab-btn" data-tab="report">Report</button>
+    </nav>
+
+    <div id="save-status" class="save-status" hidden></div>
+
+    <!-- TAB: HOURS ENTRY -->
+    <section id="tab-hours" class="tab-panel active">
+      <div class="hours-layout">
+        <div class="hours-main">
+          <div class="crew-search-box">
+            <label for="crew-search">Find a crew member</label>
+            <input type="text" id="crew-search" placeholder="Start typing a name..." autocomplete="off" />
+            <div id="crew-suggestions" class="suggestions" hidden></div>
+          </div>
+
+          <div id="crew-week-panel" class="crew-week-panel" hidden>
+            <div class="crew-week-header">
+              <h2 id="crew-week-name"></h2>
+              <span id="crew-week-position" class="badge"></span>
+              <span id="crew-week-total" class="week-total"></span>
+            </div>
+            <div id="crew-days" class="crew-days"></div>
+          </div>
+
+          <p id="hours-empty-hint" class="muted">Search for a crew member above to enter their hours for the week.</p>
+        </div>
+
+        <aside class="snapshot-panel">
+          <h3>This week so far</h3>
+          <p class="muted small">Quick tally of recorded hours &mdash; click a name to edit.</p>
+          <ul id="snapshot-list" class="snapshot-list"></ul>
+          <p id="snapshot-empty" class="muted small">No hours recorded yet this week.</p>
+        </aside>
+      </div>
+    </section>
+
+    <!-- TAB: RETROFIT -->
+    <section id="tab-retrofit" class="tab-panel">
+      <div class="retrofit-intro">
+        <h2 id="retrofit-project-label">Retrofit project</h2>
+        <p class="muted">
+          For each day, enter how many traffic lights were done, then pick which crew members to pay
+          under this project that day. Their hours are automatically moved out of whatever other
+          projects they logged hours on this week, so their weekly total doesn&rsquo;t change &mdash;
+          only which project the hours are billed to.
+        </p>
+      </div>
+      <div id="retrofit-days" class="retrofit-days"></div>
+    </section>
+
+    <!-- TAB: REPORT -->
+    <section id="tab-report" class="tab-panel">
+      <div class="report-controls">
+        <button id="generate-report-btn">Generate report</button>
+        <button id="copy-report-btn" class="secondary-btn" hidden>Copy to clipboard</button>
+        <button id="print-report-btn" class="secondary-btn" hidden>Print / Save PDF</button>
+      </div>
+      <div id="report-warnings" class="report-warnings" hidden></div>
+      <div id="report-output" class="report-output"></div>
+    </section>
+  </div>
+
+  <!-- Template for a single day's project/hours row (Hours Entry tab) -->
+  <template id="tpl-day-row">
+    <div class="entry-row">
+      <select class="project-select"></select>
+      <input type="number" class="hours-input" min="0" step="0.25" placeholder="Hrs" />
+      <select class="paytype-select"></select>
+      <button type="button" class="remove-row-btn" title="Remove">&times;</button>
+    </div>
+  </template>
+
+  <!-- Template for a retrofit assignment row -->
+  <template id="tpl-assign-row">
+    <div class="entry-row assign-row">
+      <div class="assign-search-wrap">
+        <input type="text" class="assign-crew-search" placeholder="Crew member name..." autocomplete="off" />
+        <div class="suggestions assign-suggestions" hidden></div>
+      </div>
+      <input type="number" class="hours-input" min="0" step="0.25" placeholder="Hrs" />
+      <select class="paytype-select"></select>
+      <button type="button" class="remove-row-btn" title="Remove">&times;</button>
+    </div>
+  </template>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
