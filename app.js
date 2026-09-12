@@ -174,6 +174,9 @@
       document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('active'); });
       btn.classList.add('active');
       document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+      // Direct Retrofit hours may have been logged from the Hours tab since
+      // this tab was last rendered — refresh the budget math so it's current.
+      if (btn.dataset.tab === 'retrofit') refreshRetrofitBudgets();
     });
   });
 
@@ -318,13 +321,9 @@
     }
   });
 
-  function nonRetrofitProjects() {
-    return state.projects.filter(function (p) { return p.id !== state.retrofitProjectId; });
-  }
-
   function buildProjectSelect(selectEl, selectedId) {
     selectEl.innerHTML = '<option value="">Select project...</option>';
-    nonRetrofitProjects().forEach(function (p) {
+    state.projects.forEach(function (p) {
       var opt = document.createElement('option');
       opt.value = p.id;
       opt.textContent = p.id + ' — ' + p.label;
@@ -448,6 +447,7 @@
             node.dataset.entryId = '';
             showStatus('Removed.', 'success');
             renderSnapshot();
+            refreshRetrofitBudgets();
           }).catch(function (err) { showStatus(err.message, 'error'); });
         }
         return;
@@ -465,6 +465,7 @@
         if (idx === -1) state.weekData.entries.push(record); else state.weekData.entries[idx] = record;
         showStatus('Saved.', 'success');
         renderSnapshot();
+        refreshRetrofitBudgets();
       }).catch(function (err) { showStatus(err.message, 'error'); });
     }
 
@@ -493,6 +494,7 @@
         api('deleteEntry', { entryId: entryId }).then(function () {
           state.weekData.entries = state.weekData.entries.filter(function (e) { return e.entryId !== entryId; });
           renderSnapshot();
+          refreshRetrofitBudgets();
           doRemove();
         }).catch(function (err) { showStatus(err.message, 'error'); });
       } else {
@@ -533,6 +535,32 @@
       });
       ul.appendChild(li);
     });
+
+    renderProjectSnapshot();
+  }
+
+  // Same idea as the crew snapshot above, but totalled by project instead of
+  // by person — just the project code (not the full label) to keep it short.
+  function renderProjectSnapshot() {
+    var totals = {};
+    state.weekData.entries.forEach(function (e) {
+      totals[e.projectId] = (totals[e.projectId] || 0) + (Number(e.hours) || 0);
+    });
+    var list = Object.keys(totals).map(function (projectId) {
+      return { projectId: projectId, hours: round2(totals[projectId]) };
+    }).filter(function (x) { return x.hours > 0; });
+    list.sort(function (a, b) { return a.projectId.localeCompare(b.projectId); });
+
+    var ul = document.getElementById('project-snapshot-list');
+    var emptyMsg = document.getElementById('project-snapshot-empty');
+    ul.innerHTML = '';
+    emptyMsg.hidden = list.length > 0;
+
+    list.forEach(function (item) {
+      var li = document.createElement('li');
+      li.innerHTML = '<span>' + escapeHtml(item.projectId) + '</span><span class="snap-hours">' + item.hours + ' hrs</span>';
+      ul.appendChild(li);
+    });
   }
 
   // ---------------------------------------------------------------
@@ -542,6 +570,23 @@
 
   function assignmentsFor(day) {
     return state.weekData.assignments.filter(function (a) { return a.day === day; });
+  }
+
+  // Hours crew logged directly to the Retrofit project that day via the
+  // regular Enter Hours grid (i.e. people who actually did the traffic-light
+  // work themselves, entering it like any other project).
+  function directRetrofitHoursForDay(day) {
+    var total = 0;
+    state.weekData.entries.forEach(function (e) {
+      if (e.day === day && e.projectId === state.retrofitProjectId) total += Number(e.hours) || 0;
+    });
+    return round2(total);
+  }
+
+  function refreshRetrofitBudgets() {
+    document.querySelectorAll('#retrofit-days .retrofit-day-card').forEach(function (card) {
+      updateBudgetInfo(card);
+    });
   }
 
   function renderRetrofitTab() {
@@ -600,12 +645,23 @@
     var day = card.dataset.day;
     var lights = Number(card.querySelector('.lights-input').value) || 0;
     var budget = round2(lights * state.hoursPerLight);
+    var direct = directRetrofitHoursForDay(day);
+    var remaining = round2(budget - direct);
     var assigned = 0;
     card.querySelectorAll('.assign-row .hours-input').forEach(function (inp) { assigned += Number(inp.value) || 0; });
+    assigned = round2(assigned);
+
     var info = card.querySelector('.budget-info');
-    var text = '<strong>' + budget + ' hrs</strong> available (' + lights + ' × ' + state.hoursPerLight + 'h) — ' + round2(assigned) + ' hrs assigned';
-    if (assigned > budget + 0.001) {
-      text += ' <span class="budget-warn">— over budget</span>';
+    var text =
+      '<strong>' + budget + ' hrs</strong> budget (' + lights + ' × ' + state.hoursPerLight + 'h)' +
+      ' — <strong>' + direct + ' hrs</strong> already logged directly to Retrofit this day' +
+      ' — <strong>' + round2(Math.max(remaining, 0)) + ' hrs</strong> left to give to other crew' +
+      ' (' + assigned + ' hrs assigned below)';
+
+    if (remaining < -0.001) {
+      text += ' <span class="budget-warn">— more hours logged directly than the traffic-light budget covers</span>';
+    } else if (assigned > remaining + 0.001) {
+      text += ' <span class="budget-warn">— assigned more than the remaining surplus</span>';
     }
     info.innerHTML = text;
   }
