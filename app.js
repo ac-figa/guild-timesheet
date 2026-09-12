@@ -80,6 +80,18 @@
       });
   }
 
+  // A focused number input (the Hrs boxes, the Traffic lights box) silently
+  // changes its value when the mouse wheel scrolls over it — easy to trigger
+  // by accident while scrolling the page right after typing a number, and it
+  // was corrupting saved hours without any visible sign on screen. Blurring
+  // the input as soon as a wheel event starts stops the browser's default
+  // increment/decrement before it applies, while still letting the page
+  // scroll normally (nothing here calls preventDefault).
+  document.addEventListener('wheel', function () {
+    var el = document.activeElement;
+    if (el && el.tagName === 'INPUT' && el.type === 'number') el.blur();
+  }, { passive: true });
+
   // ---------------------------------------------------------------
   // Save status toast
   // ---------------------------------------------------------------
@@ -467,18 +479,34 @@
     }
     updateAssignWarning();
 
+    // Saves for this row are chained one after another rather than fired
+    // off in parallel. Without this, a save that's still waiting on the
+    // server (no entryId back yet) plus a second save triggered right
+    // after it (fast typing, or a value bumped by a scroll/keyboard
+    // accident) would both go out with an empty entryId and create two
+    // separate rows in the sheet for what should be one entry — visible
+    // only as inflated totals after a refresh, never as an extra row on
+    // screen. Chaining guarantees the second save always waits for the
+    // first to come back with its entryId first.
+    var saveChain = Promise.resolve();
+
     function persist() {
       var hours = Number(hoursInput.value) || 0;
       var projectId = projectSelect.value;
       var payType = paytypeSelect.value;
-      var entryId = node.dataset.entryId;
 
       updateDayTotal(currentBlock());
       updateWeekTotal();
 
+      saveChain = saveChain.then(function () { return doSave(hours, projectId, payType); });
+    }
+
+    function doSave(hours, projectId, payType) {
+      var entryId = node.dataset.entryId;
+
       if (hours <= 0) {
         if (entryId) {
-          api('deleteEntry', { entryId: entryId }).then(function () {
+          return api('deleteEntry', { entryId: entryId }).then(function () {
             state.weekData.entries = state.weekData.entries.filter(function (e) { return e.entryId !== entryId; });
             node.dataset.entryId = '';
             showStatus('Removed.', 'success');
@@ -491,7 +519,7 @@
       if (!projectId) return; // wait until a project is chosen
 
       showStatus('Saving...');
-      api('saveEntry', {
+      return api('saveEntry', {
         weekEnding: state.weekEnding, day: day, crewId: crewId,
         projectId: projectId, hours: hours, payType: payType, entryId: entryId || undefined
       }).then(function (res) {
@@ -516,7 +544,6 @@
     paytypeSelect.addEventListener('change', persist);
 
     removeBtn.addEventListener('click', function () {
-      var entryId = node.dataset.entryId;
       var block = currentBlock();
       var doRemove = function () {
         node.remove();
@@ -525,16 +552,22 @@
         var rowsWrap = block.querySelector('.day-rows');
         if (rowsWrap.children.length === 0) addEntryRow(rowsWrap, crewId, day, null);
       };
-      if (entryId) {
-        api('deleteEntry', { entryId: entryId }).then(function () {
-          state.weekData.entries = state.weekData.entries.filter(function (e) { return e.entryId !== entryId; });
-          renderSnapshot();
-          refreshRetrofitBudgets();
+      // Wait for any save already in flight for this row (same reasoning as
+      // doSave above) so a click right after typing can't race a pending
+      // save and leave an orphaned entry behind in the sheet.
+      saveChain = saveChain.then(function () {
+        var entryId = node.dataset.entryId;
+        if (entryId) {
+          return api('deleteEntry', { entryId: entryId }).then(function () {
+            state.weekData.entries = state.weekData.entries.filter(function (e) { return e.entryId !== entryId; });
+            renderSnapshot();
+            refreshRetrofitBudgets();
+            doRemove();
+          }).catch(function (err) { showStatus(err.message, 'error'); });
+        } else {
           doRemove();
-        }).catch(function (err) { showStatus(err.message, 'error'); });
-      } else {
-        doRemove();
-      }
+        }
+      });
     });
 
     rowsWrap.appendChild(node);
@@ -576,11 +609,40 @@
 
   // Same idea as the crew snapshot above, but totalled by project instead of
   // by person — just the project code (not the full label) to keep it short.
+  //
+  // Raw entries alone can't tell this story correctly: when crew are added
+  // to a Retrofit day (Retrofit tab), hours that were logged directly
+  // against their other project get reallocated over to Retrofit for
+  // reporting purposes, without changing the underlying saved entry. So
+  // this renders the raw per-project sums immediately (fast, no flicker),
+  // then corrects them right after using the same effective-totals
+  // calculation the Report tab uses (via getReport), so this sidebar and
+  // the eventual report always agree — including right after adding
+  // someone to Retrofit, not just after a page refresh.
+  var projectSnapshotRequestId = 0;
+
   function renderProjectSnapshot() {
-    var totals = {};
+    var rawTotals = {};
     state.weekData.entries.forEach(function (e) {
-      totals[e.projectId] = (totals[e.projectId] || 0) + (Number(e.hours) || 0);
+      rawTotals[e.projectId] = (rawTotals[e.projectId] || 0) + (Number(e.hours) || 0);
     });
+    renderProjectSnapshotList(rawTotals);
+
+    var requestId = ++projectSnapshotRequestId;
+    api('getReport', { weekEnding: state.weekEnding }).then(function (res) {
+      if (requestId !== projectSnapshotRequestId) return; // a newer refresh already superseded this one
+      var effectiveTotals = {};
+      res.report.forEach(function (p) {
+        effectiveTotals[p.projectId] = p.lines.reduce(function (s, l) { return s + l.total; }, 0);
+      });
+      renderProjectSnapshotList(effectiveTotals);
+    }).catch(function () {
+      // Leave the raw totals shown above — this sidebar is a convenience,
+      // not the report itself, so it's fine for it to fall back quietly.
+    });
+  }
+
+  function renderProjectSnapshotList(totals) {
     var list = Object.keys(totals).map(function (projectId) {
       return { projectId: projectId, hours: round2(totals[projectId]) };
     }).filter(function (x) { return x.hours > 0; });
@@ -706,6 +768,10 @@
     api('saveRetrofitDay', { weekEnding: state.weekEnding, day: day, trafficLights: lights }).then(function () {
       state.weekData.retrofitDays[day] = lights;
       showStatus('Saved.', 'success');
+      // Changing the traffic-light budget changes how much surplus gets
+      // reallocated to Retrofit, which the Enter Hours tab's "by project"
+      // sidebar needs to reflect too.
+      renderProjectSnapshot();
     }).catch(function (err) { showStatus(err.message, 'error'); });
   }
 
@@ -767,6 +833,10 @@
       state.weekData.assignments = state.weekData.assignments.filter(function (a) { return a.day !== day; })
         .concat(assignments.map(function (a) { return Object.assign({ day: day, assignmentId: null }, a); }));
       showStatus('Saved.', 'success');
+      // Adding/removing someone from a Retrofit day changes how much of
+      // their other-project hours get reallocated to Retrofit, which the
+      // Enter Hours tab's "by project" sidebar needs to reflect too.
+      renderProjectSnapshot();
     }).catch(function (err) { showStatus(err.message, 'error'); });
   }
 
