@@ -76,6 +76,13 @@ input:focus, select:focus { outline: 2px solid var(--primary); outline-offset: 1
   justify-content: center;
   padding: 20px;
 }
+/* [hidden] alone loses to the ID selector above on specificity, so the
+   login screen would stay visible (and push the app down the page) even
+   after JS sets loginScreen.hidden = true. Force it explicitly. */
+#login-screen[hidden],
+#app[hidden] {
+  display: none;
+}
 .login-card {
   background: var(--card-bg);
   border-radius: var(--radius);
