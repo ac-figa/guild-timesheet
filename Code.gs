@@ -26,6 +26,7 @@ var SHEET_PROJECTS = 'Projects';
 var SHEET_ENTRIES = 'Entries';
 var SHEET_RETROFIT_DAYS = 'RetrofitDays';
 var SHEET_RETROFIT_ASSIGN = 'RetrofitAssignments';
+var SHEET_CREW_ASSIGN = 'CrewAssignments';
 
 var COLS = {};
 COLS[SHEET_CREW] = ['ID', 'Name', 'Position', 'Active'];
@@ -33,6 +34,11 @@ COLS[SHEET_PROJECTS] = ['ID', 'Label', 'IsRetrofit', 'Active'];
 COLS[SHEET_ENTRIES] = ['EntryID', 'WeekEnding', 'Day', 'CrewID', 'ProjectID', 'Hours', 'PayType', 'CreatedAt', 'UpdatedAt'];
 COLS[SHEET_RETROFIT_DAYS] = ['WeekEnding', 'Day', 'TrafficLights', 'UpdatedAt'];
 COLS[SHEET_RETROFIT_ASSIGN] = ['AssignmentID', 'WeekEnding', 'Day', 'CrewID', 'Hours', 'PayType', 'UpdatedAt'];
+// Who was scheduled/recorded to work which project on which day — a plan,
+// independent of actual logged hours. Used to auto-fill the project when
+// hours are entered later, and to warn (not block) when hours end up
+// logged against a different project than what was recorded here.
+COLS[SHEET_CREW_ASSIGN] = ['AssignmentID', 'WeekEnding', 'Day', 'ProjectID', 'CrewID', 'UpdatedAt'];
 
 var DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 var PAY_TYPES = ['Regular', 'OT15', 'OT2'];
@@ -248,6 +254,10 @@ function getAssignmentsForWeek_(weekEnding) {
   return readTable_(SHEET_RETROFIT_ASSIGN).filter(function (r) { return r.WeekEnding === weekEnding; });
 }
 
+function getCrewAssignmentsForWeek_(weekEnding) {
+  return readTable_(SHEET_CREW_ASSIGN).filter(function (r) { return r.WeekEnding === weekEnding; });
+}
+
 // ---------------------------------------------------------------------
 // Seeded "random" shuffle — deterministic per (weekEnding, crewId) so the
 // same inputs always produce the same reallocation, but which of a
@@ -437,7 +447,12 @@ function action_getWeek_(p) {
       hours: Number(r.Hours) || 0, payType: r.PayType || 'Regular'
     };
   });
-  return { ok: true, entries: entries, retrofitDays: retrofitDays, assignments: assignments };
+  var crewAssignments = getCrewAssignmentsForWeek_(weekEnding).map(function (r) {
+    return {
+      assignmentId: r.AssignmentID, day: r.Day, projectId: String(r.ProjectID), crewId: String(r.CrewID)
+    };
+  });
+  return { ok: true, entries: entries, retrofitDays: retrofitDays, assignments: assignments, crewAssignments: crewAssignments };
 }
 
 function action_saveEntry_(p) {
@@ -503,6 +518,33 @@ function action_saveRetrofitAssignments_(p) {
     appendRow_(SHEET_RETROFIT_ASSIGN, {
       AssignmentID: Utilities.getUuid(), WeekEnding: p.weekEnding, Day: p.day,
       CrewID: a.crewId, Hours: Number(a.hours), PayType: a.payType || 'Regular', UpdatedAt: now
+    });
+  });
+  return { ok: true };
+}
+
+// Replace all "who worked which project on which day" records for one
+// weekEnding+day in one pass (same replace-in-place pattern as
+// action_saveRetrofitAssignments_ below). p.assignments is a list of
+// { projectId, crewIds: [...] } groups — one group per project that had
+// crew recorded against it that day; a crew member appearing in more than
+// one group is the intentional "worked two projects that day" case.
+function action_saveCrewAssignments_(p) {
+  requireAuth_(p.token);
+  var now = new Date().toISOString();
+  var rows = readTable_(SHEET_CREW_ASSIGN);
+  var toDelete = rows.filter(function (r) { return r.WeekEnding === p.weekEnding && r.Day === p.day; });
+  toDelete.sort(function (a, b) { return b._row - a._row; }).forEach(function (r) {
+    deleteRow_(SHEET_CREW_ASSIGN, r._row);
+  });
+  (p.assignments || []).forEach(function (group) {
+    if (!group.projectId) return;
+    (group.crewIds || []).forEach(function (crewId) {
+      if (!crewId) return;
+      appendRow_(SHEET_CREW_ASSIGN, {
+        AssignmentID: Utilities.getUuid(), WeekEnding: p.weekEnding, Day: p.day,
+        ProjectID: group.projectId, CrewID: crewId, UpdatedAt: now
+      });
     });
   });
   return { ok: true };
@@ -590,6 +632,7 @@ function doPost(e) {
       deleteEntry: action_deleteEntry_,
       saveRetrofitDay: action_saveRetrofitDay_,
       saveRetrofitAssignments: action_saveRetrofitAssignments_,
+      saveCrewAssignments: action_saveCrewAssignments_,
       getSnapshot: action_getSnapshot_,
       getReport: action_getReport_,
       listWeeks: action_listWeeks_

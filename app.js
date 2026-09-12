@@ -20,7 +20,7 @@
     payTypes: ['Regular', 'OT15', 'OT2'],
     payTypeLabels: { Regular: 'Regular', OT15: 'O/T (1.5x)', OT2: 'O/T (2x)' },
     weekEnding: null, // 'YYYY-MM-DD', a Saturday
-    weekData: { entries: [], retrofitDays: {}, assignments: [] },
+    weekData: { entries: [], retrofitDays: {}, assignments: [], crewAssignments: [] },
     currentCrewId: null
   };
 
@@ -177,6 +177,9 @@
       // Direct Retrofit hours may have been logged from the Hours tab since
       // this tab was last rendered — refresh the budget math so it's current.
       if (btn.dataset.tab === 'retrofit') refreshRetrofitBudgets();
+      // Remind about any recorded-but-unhoured assignments as soon as the
+      // Report tab is opened, not only when Generate is clicked.
+      if (btn.dataset.tab === 'report') renderAssignmentGapWarnings();
     });
   });
 
@@ -222,13 +225,16 @@
       state.weekData.entries = res.entries;
       state.weekData.retrofitDays = res.retrofitDays;
       state.weekData.assignments = res.assignments;
+      state.weekData.crewAssignments = res.crewAssignments || [];
       renderSnapshot();
       if (state.currentCrewId) renderCrewWeekPanel();
       renderRetrofitTab();
+      renderAssignmentsTab();
       // Report tab needs an explicit "Generate" click so it always reflects
       // a deliberate, fresh computation.
       document.getElementById('report-output').innerHTML = '';
       document.getElementById('report-warnings').hidden = true;
+      document.getElementById('assignment-gap-warnings').hidden = true;
       document.getElementById('copy-report-btn').hidden = true;
       document.getElementById('print-report-btn').hidden = true;
     }).catch(function (err) { showStatus(err.message, 'error'); });
@@ -392,7 +398,17 @@
 
       var existing = entriesFor(crew.id, day);
       if (existing.length === 0) {
-        addEntryRow(rowsWrap, crew.id, day, null);
+        // Nothing entered for this person/day yet — if they were recorded
+        // (in the Assignments tab) as working one or more projects that
+        // day, start them off pre-filled with those projects (one row per
+        // project, covering the rare same-day-two-projects case) so dad
+        // just has to type the hours.
+        var assignedProjects = crewAssignmentsForCrewDay(crew.id, day);
+        if (assignedProjects.length > 0) {
+          assignedProjects.forEach(function (pid) { addEntryRow(rowsWrap, crew.id, day, null, pid); });
+        } else {
+          addEntryRow(rowsWrap, crew.id, day, null);
+        }
       } else {
         existing.forEach(function (entry) { addEntryRow(rowsWrap, crew.id, day, entry); });
       }
@@ -415,21 +431,33 @@
     document.getElementById('crew-week-total').textContent = 'Week total: ' + round2(total) + ' hrs';
   }
 
-  function addEntryRow(rowsWrap, crewId, day, entry) {
+  function addEntryRow(rowsWrap, crewId, day, entry, autoProjectId) {
     var tpl = document.getElementById('tpl-day-row');
     var node = tpl.content.firstElementChild.cloneNode(true);
     var projectSelect = node.querySelector('.project-select');
     var hoursInput = node.querySelector('.hours-input');
     var paytypeSelect = node.querySelector('.paytype-select');
     var removeBtn = node.querySelector('.remove-row-btn');
+    var warningEl = node.querySelector('.assign-warning');
 
-    buildProjectSelect(projectSelect, entry ? entry.projectId : '');
+    buildProjectSelect(projectSelect, entry ? entry.projectId : (autoProjectId || ''));
     buildPayTypeSelect(paytypeSelect, entry ? entry.payType : 'Regular');
     hoursInput.value = entry ? entry.hours : '';
     node.dataset.entryId = entry ? entry.entryId : '';
     var rowUid = 'row-' + Math.random().toString(36).slice(2);
 
     function currentBlock() { return node.closest('.day-block'); }
+
+    // Small, non-blocking note (never a modal/alert) shown under the row
+    // whenever the chosen project doesn't match what was recorded for this
+    // person on this day in the Assignments tab — whether nothing was
+    // recorded at all, or something else was.
+    function updateAssignWarning() {
+      var msg = computeAssignWarning(crewId, day, projectSelect.value);
+      if (msg) { warningEl.textContent = msg; warningEl.hidden = false; }
+      else { warningEl.hidden = true; }
+    }
+    updateAssignWarning();
 
     function persist() {
       var hours = Number(hoursInput.value) || 0;
@@ -476,9 +504,8 @@
         debounce(rowUid, persist);
       });
     });
-    [projectSelect, paytypeSelect].forEach(function (el) {
-      el.addEventListener('change', persist);
-    });
+    projectSelect.addEventListener('change', function () { updateAssignWarning(); persist(); });
+    paytypeSelect.addEventListener('change', persist);
 
     removeBtn.addEventListener('click', function () {
       var entryId = node.dataset.entryId;
@@ -736,12 +763,245 @@
   }
 
   // ---------------------------------------------------------------
+  // Assignments tab — who was recorded to work which project on which
+  // day, independent of hours. Used to auto-fill the Enter Hours project
+  // dropdown and to warn (never block) when hours end up logged against a
+  // different project than what's recorded here.
+  // ---------------------------------------------------------------
+  function crewAssignmentsForCrewDay(crewId, day) {
+    return state.weekData.crewAssignments
+      .filter(function (a) { return a.crewId === crewId && a.day === day; })
+      .map(function (a) { return a.projectId; });
+  }
+
+  function crewAssignmentsForDayGrouped(day) {
+    var groups = {}; // projectId -> [crewId, ...]
+    var order = [];
+    state.weekData.crewAssignments.forEach(function (a) {
+      if (a.day !== day) return;
+      if (!groups[a.projectId]) { groups[a.projectId] = []; order.push(a.projectId); }
+      groups[a.projectId].push(a.crewId);
+    });
+    return { groups: groups, order: order };
+  }
+
+  // Null when the row's chosen project matches (or nothing's chosen yet);
+  // otherwise a short, specific note meant to sit directly under the row.
+  function computeAssignWarning(crewId, day, projectId) {
+    if (!projectId) return null;
+    var assigned = crewAssignmentsForCrewDay(crewId, day);
+    if (assigned.indexOf(projectId) !== -1) return null;
+    if (assigned.length === 0) {
+      return 'Not recorded as assigned to this project on this day (Assignments tab).';
+    }
+    return 'Previously recorded as assigned to ' + assigned.join(', ') + ' on this day, not this project.';
+  }
+
+  function renderAssignmentsTab() {
+    var container = document.getElementById('assign-days');
+    container.innerHTML = '';
+    var dates = getWeekDates(state.weekEnding);
+
+    state.days.forEach(function (day, idx) {
+      var card = document.createElement('div');
+      card.className = 'assign-day-card';
+      card.dataset.day = day;
+
+      var header = document.createElement('div');
+      header.className = 'assign-day-card-header';
+      header.innerHTML =
+        '<span class="day-name">' + dayNamesFull[day] + '</span>' +
+        '<span class="day-date muted">' + formatDisplay(dates[idx]) + '</span>';
+      card.appendChild(header);
+
+      var groupsWrap = document.createElement('div');
+      groupsWrap.className = 'project-groups';
+      card.appendChild(groupsWrap);
+
+      var addGroupBtn = document.createElement('button');
+      addGroupBtn.type = 'button';
+      addGroupBtn.className = 'add-row-btn';
+      addGroupBtn.textContent = '+ Add project for this day';
+      addGroupBtn.addEventListener('click', function () {
+        addProjectGroup(groupsWrap, day, card, null, []);
+      });
+      card.appendChild(addGroupBtn);
+
+      container.appendChild(card);
+
+      var grouped = crewAssignmentsForDayGrouped(day);
+      grouped.order.forEach(function (pid) {
+        addProjectGroup(groupsWrap, day, card, pid, grouped.groups[pid]);
+      });
+    });
+  }
+
+  // Keeps every project group's dropdown on a given day from offering a
+  // project another group on that same day has already picked, so dad
+  // can't accidentally create two groups for the same project/day.
+  function refreshGroupSelectsForDay(dayCard) {
+    var groupEls = dayCard.querySelectorAll('.project-group');
+    var chosen = Array.prototype.map.call(groupEls, function (g) {
+      return g.querySelector('.project-select-for-group').value;
+    });
+    groupEls.forEach(function (g) {
+      var select = g.querySelector('.project-select-for-group');
+      var current = select.value;
+      select.innerHTML = '<option value="">Select project...</option>';
+      state.projects.forEach(function (p) {
+        if (chosen.indexOf(p.id) !== -1 && p.id !== current) return;
+        var opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.id + ' — ' + p.label;
+        if (p.id === current) opt.selected = true;
+        select.appendChild(opt);
+      });
+    });
+  }
+
+  function addProjectGroup(groupsWrap, day, dayCard, projectId, crewIds) {
+    var group = document.createElement('div');
+    group.className = 'project-group';
+
+    var header = document.createElement('div');
+    header.className = 'project-group-header';
+    var select = document.createElement('select');
+    select.className = 'project-select-for-group';
+    var removeGroupBtn = document.createElement('button');
+    removeGroupBtn.type = 'button';
+    removeGroupBtn.className = 'remove-row-btn';
+    removeGroupBtn.title = 'Remove this project from the day';
+    removeGroupBtn.innerHTML = '&times;';
+    header.appendChild(select);
+    header.appendChild(removeGroupBtn);
+    group.appendChild(header);
+
+    var chipList = document.createElement('div');
+    chipList.className = 'crew-chip-list';
+    group.appendChild(chipList);
+
+    var searchWrap = document.createElement('div');
+    searchWrap.className = 'assign-search-wrap';
+    var searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.className = 'assign-crew-search';
+    searchInput.placeholder = 'Add crew member...';
+    searchInput.autocomplete = 'off';
+    var suggestionsEl = document.createElement('div');
+    suggestionsEl.className = 'suggestions assign-suggestions';
+    suggestionsEl.hidden = true;
+    searchWrap.appendChild(searchInput);
+    searchWrap.appendChild(suggestionsEl);
+    group.appendChild(searchWrap);
+
+    groupsWrap.appendChild(group);
+
+    function persist() {
+      debounce('crewassign-' + day, function () { persistCrewAssignmentsForDay(day, dayCard); });
+    }
+
+    function addChip(crewId) {
+      if (chipList.querySelector('[data-crew-id="' + crewId + '"]')) return;
+      var crew = state.crewById[crewId];
+      var chip = document.createElement('span');
+      chip.className = 'crew-chip';
+      chip.dataset.crewId = crewId;
+      chip.innerHTML = escapeHtml(crew ? crew.name : crewId) + ' <button type="button" class="chip-remove" title="Remove">&times;</button>';
+      chip.querySelector('.chip-remove').addEventListener('click', function () {
+        chip.remove();
+        persist();
+      });
+      chipList.appendChild(chip);
+    }
+
+    (crewIds || []).forEach(addChip);
+
+    setupAutocomplete({
+      inputEl: searchInput,
+      suggestionsEl: suggestionsEl,
+      allowAddNew: true,
+      clearAfterSelect: true,
+      onSelect: function (crew) {
+        addChip(crew.id);
+        persist();
+      }
+    });
+
+    select.addEventListener('change', function () {
+      refreshGroupSelectsForDay(dayCard);
+      persist();
+    });
+
+    removeGroupBtn.addEventListener('click', function () {
+      group.remove();
+      persist();
+    });
+
+    refreshGroupSelectsForDay(dayCard);
+    if (projectId) select.value = projectId;
+  }
+
+  function persistCrewAssignmentsForDay(day, dayCard) {
+    var groups = [];
+    dayCard.querySelectorAll('.project-group').forEach(function (groupEl) {
+      var projectId = groupEl.querySelector('.project-select-for-group').value;
+      if (!projectId) return;
+      var crewIds = Array.prototype.map.call(groupEl.querySelectorAll('.crew-chip'), function (chip) {
+        return chip.dataset.crewId;
+      });
+      if (crewIds.length === 0) return;
+      groups.push({ projectId: projectId, crewIds: crewIds });
+    });
+    showStatus('Saving...');
+    api('saveCrewAssignments', { weekEnding: state.weekEnding, day: day, assignments: groups }).then(function () {
+      state.weekData.crewAssignments = state.weekData.crewAssignments.filter(function (a) { return a.day !== day; });
+      groups.forEach(function (g) {
+        g.crewIds.forEach(function (crewId) {
+          state.weekData.crewAssignments.push({ assignmentId: null, day: day, projectId: g.projectId, crewId: crewId });
+        });
+      });
+      showStatus('Saved.', 'success');
+      // The Enter Hours tab's auto-fill/warning depends on this data —
+      // refresh it if it's currently showing someone affected.
+      if (state.currentCrewId) renderCrewWeekPanel();
+    }).catch(function (err) { showStatus(err.message, 'error'); });
+  }
+
+  // ---------------------------------------------------------------
   // Report tab
   // ---------------------------------------------------------------
   var lastReport = null;
 
+  // Assigned (in the Assignments tab) to a project on a day, but no hours
+  // ended up logged for that exact person/day/project — a reminder, shown
+  // before the report is generated (and again on generate, in case
+  // something changed since), never a blocker.
+  function computeAssignmentGapWarnings() {
+    return state.weekData.crewAssignments.filter(function (a) {
+      return !state.weekData.entries.some(function (e) {
+        return e.crewId === a.crewId && e.day === a.day && e.projectId === a.projectId && Number(e.hours) > 0;
+      });
+    });
+  }
+
+  function renderAssignmentGapWarnings() {
+    var box = document.getElementById('assignment-gap-warnings');
+    var gaps = computeAssignmentGapWarnings();
+    if (!gaps.length) { box.hidden = true; box.innerHTML = ''; return; }
+    box.hidden = false;
+    box.innerHTML = '<h4>Before you generate the report</h4>' + gaps.map(function (g) {
+      var crew = state.crewById[g.crewId];
+      var name = crew ? crew.name : g.crewId;
+      var proj = state.projectsById[g.projectId];
+      var label = proj ? (g.projectId + ' — ' + proj.label) : g.projectId;
+      return '<div>' + escapeHtml(name) + ' was recorded as working ' + escapeHtml(label) + ' on ' +
+        dayNamesFull[g.day] + ', but no hours have been entered for that yet.</div>';
+    }).join('');
+  }
+
   document.getElementById('generate-report-btn').addEventListener('click', function () {
     showStatus('Generating report...');
+    renderAssignmentGapWarnings();
     api('getReport', { weekEnding: state.weekEnding }).then(function (res) {
       lastReport = res;
       renderReport(res);

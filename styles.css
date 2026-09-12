@@ -242,16 +242,25 @@ input:focus, select:focus { outline: 2px solid var(--primary); outline-offset: 1
 .day-date { color: var(--muted); font-size: 0.85em; }
 .day-total { margin-left: auto; font-size: 0.85em; color: var(--muted); }
 
+.entry-row-wrap { margin-bottom: 8px; }
 .entry-row {
   display: flex;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
   align-items: center;
   flex-wrap: wrap;
 }
 .entry-row .project-select { flex: 1 1 260px; min-width: 180px; }
 .entry-row .hours-input { width: 90px; }
 .entry-row .paytype-select { width: 150px; }
+/* Small, non-blocking note under an Enter Hours row when the chosen
+   project doesn't match what's recorded for that person/day in the
+   Assignments tab. Deliberately quiet (no red, no icon, no modal). */
+.assign-warning {
+  color: #8a6100;
+  font-size: 0.82em;
+  margin: 0 0 4px 2px;
+}
 .remove-row-btn {
   background: none;
   color: var(--danger);
@@ -298,6 +307,64 @@ input:focus, select:focus { outline: 2px solid var(--primary); outline-offset: 1
 #project-snapshot-list { max-height: 240px; }
 #project-snapshot-list li { cursor: default; }
 #project-snapshot-list li:hover { background: none; }
+
+/* ---------------- Assignments tab ---------------- */
+.assign-intro { margin-bottom: 20px; max-width: 760px; }
+.assign-days { display: flex; flex-direction: column; gap: 16px; }
+.assign-day-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+.assign-day-card-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.assign-day-card-header .day-name { width: auto; }
+.project-groups { display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; }
+.project-group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--bg);
+}
+.project-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.project-group-header .project-select-for-group { flex: 1 1 260px; min-width: 180px; }
+.crew-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.crew-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--accent);
+  color: var(--primary-dark);
+  border-radius: 16px;
+  padding: 4px 4px 4px 12px;
+  font-size: 0.9em;
+}
+.chip-remove {
+  background: none;
+  color: var(--primary-dark);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  line-height: 1;
+  font-size: 1.1em;
+}
+.chip-remove:hover { background: rgba(0,0,0,0.08); }
 
 /* ---------------- Retrofit tab ---------------- */
 .retrofit-intro { margin-bottom: 20px; max-width: 760px; }
@@ -346,7 +413,7 @@ input:focus, select:focus { outline: 2px solid var(--primary); outline-offset: 1
 .report-empty { color: var(--muted); text-align: center; padding: 40px 0; }
 
 @media print {
-  .topbar, .tabs, .report-controls, .save-status { display: none !important; }
+  .topbar, .tabs, .report-controls, .save-status, #assignment-gap-warnings { display: none !important; }
   .tab-panel { display: none !important; }
   #tab-report { display: block !important; padding: 0; }
   .report-output { border: none; box-shadow: none; }

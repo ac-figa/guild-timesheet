@@ -40,6 +40,7 @@
 
     <nav class="tabs">
       <button class="tab-btn active" data-tab="hours">Enter Hours</button>
+      <button class="tab-btn" data-tab="assignments">Assignments</button>
       <button class="tab-btn" data-tab="retrofit">Retrofit / Traffic Lights</button>
       <button class="tab-btn" data-tab="report">Report</button>
     </nav>
@@ -81,6 +82,22 @@
       </div>
     </section>
 
+    <!-- TAB: ASSIGNMENTS -->
+    <section id="tab-assignments" class="tab-panel">
+      <div class="assign-intro">
+        <h2>Who worked what, by day</h2>
+        <p class="muted">
+          For each day, add a project and the crew members who worked on it &mdash; this is just a
+          plan of who was where, separate from their actual hours. When you later enter someone&rsquo;s
+          hours for a day they&rsquo;re recorded here, the project fills in automatically. If someone
+          worked more than one project in a day, add them under each one. Entering hours against a
+          different project than what&rsquo;s recorded here won&rsquo;t be blocked &mdash; you&rsquo;ll
+          just see a small note about it.
+        </p>
+      </div>
+      <div id="assign-days" class="assign-days"></div>
+    </section>
+
     <!-- TAB: RETROFIT -->
     <section id="tab-retrofit" class="tab-panel">
       <div class="retrofit-intro">
@@ -105,6 +122,7 @@
         <button id="copy-report-btn" class="secondary-btn" hidden>Copy to clipboard</button>
         <button id="print-report-btn" class="secondary-btn" hidden>Print / Save PDF</button>
       </div>
+      <div id="assignment-gap-warnings" class="report-warnings" hidden></div>
       <div id="report-warnings" class="report-warnings" hidden></div>
       <div id="report-output" class="report-output"></div>
     </section>
@@ -112,11 +130,14 @@
 
   <!-- Template for a single day's project/hours row (Hours Entry tab) -->
   <template id="tpl-day-row">
-    <div class="entry-row">
-      <select class="project-select"></select>
-      <input type="number" class="hours-input" min="0" step="0.25" placeholder="Hrs" />
-      <select class="paytype-select"></select>
-      <button type="button" class="remove-row-btn" title="Remove">&times;</button>
+    <div class="entry-row-wrap">
+      <div class="entry-row">
+        <select class="project-select"></select>
+        <input type="number" class="hours-input" min="0" step="0.25" placeholder="Hrs" />
+        <select class="paytype-select"></select>
+        <button type="button" class="remove-row-btn" title="Remove">&times;</button>
+      </div>
+      <div class="assign-warning" hidden></div>
     </div>
   </template>
 
