@@ -489,6 +489,13 @@ input:focus, select:focus { outline: 2px solid var(--primary); outline-offset: 1
   padding: 20px;
   z-index: 100;
 }
+/* Without this, the [hidden] attribute loses to the class's own
+   `display: flex` above (same specificity, and this stylesheet loads
+   after the browser's default styles) and the overlay stays visible
+   — empty — even while "hidden" is set. */
+.stats-overlay[hidden] {
+  display: none;
+}
 .stats-panel {
   background: var(--card-bg);
   border-radius: var(--radius);
