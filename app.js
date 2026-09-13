@@ -21,7 +21,12 @@
     payTypeLabels: { Regular: 'Regular', OT15: 'O/T (1.5x)', OT2: 'O/T (2x)' },
     weekEnding: null, // 'YYYY-MM-DD', a Saturday
     weekData: { entries: [], retrofitDays: {}, assignments: [], crewAssignments: [] },
-    currentCrewId: null
+    currentCrewId: null,
+    // All-time (every week with any data) hours, refreshed after anything
+    // that changes hours and whenever the Crew & Projects tab is opened.
+    // { weeks: [...], crew: { total: {crewId: hrs}, byWeek: {crewId: {weekEnding: hrs}} },
+    //   projects: { total: {projectId: hrs}, byWeek: {projectId: {weekEnding: hrs}} } }
+    allTimeStats: null
   };
 
   // Every distinct position code seen in the crew list as of this build —
@@ -167,6 +172,10 @@
         (state.projectsById[state.retrofitProjectId] || {}).label
           ? 'Retrofit project: ' + state.projectsById[state.retrofitProjectId].label
           : 'Retrofit project';
+
+      // All-time totals don't depend on the selected week, so this only
+      // needs to run once at login rather than on every week switch.
+      loadAllTimeStats().then(renderAllTimeProjectPanel);
     }).catch(function (err) {
       // token invalid/expired -> back to login
       localStorage.removeItem('gts_token');
@@ -512,6 +521,7 @@
             showStatus('Removed.', 'success');
             renderSnapshot();
             refreshRetrofitBudgets();
+            refreshAllTimeStats();
           }).catch(function (err) { showStatus(err.message, 'error'); });
         }
         return;
@@ -530,6 +540,7 @@
         showStatus('Saved.', 'success');
         renderSnapshot();
         refreshRetrofitBudgets();
+        refreshAllTimeStats();
       }).catch(function (err) { showStatus(err.message, 'error'); });
     }
 
@@ -562,6 +573,7 @@
             state.weekData.entries = state.weekData.entries.filter(function (e) { return e.entryId !== entryId; });
             renderSnapshot();
             refreshRetrofitBudgets();
+            refreshAllTimeStats();
             doRemove();
           }).catch(function (err) { showStatus(err.message, 'error'); });
         } else {
@@ -643,13 +655,20 @@
   }
 
   function renderProjectSnapshotList(totals) {
+    renderProjectHoursList('project-snapshot-list', 'project-snapshot-empty', totals);
+  }
+
+  // Shared by the "By project" (this week) and "Project totals (all time)"
+  // lists — same shape of data (projectId -> hours), just a different
+  // source and a different <ul>/empty-message pair.
+  function renderProjectHoursList(ulId, emptyId, totals) {
     var list = Object.keys(totals).map(function (projectId) {
       return { projectId: projectId, hours: round2(totals[projectId]) };
     }).filter(function (x) { return x.hours > 0; });
     list.sort(function (a, b) { return a.projectId.localeCompare(b.projectId); });
 
-    var ul = document.getElementById('project-snapshot-list');
-    var emptyMsg = document.getElementById('project-snapshot-empty');
+    var ul = document.getElementById(ulId);
+    var emptyMsg = document.getElementById(emptyId);
     ul.innerHTML = '';
     emptyMsg.hidden = list.length > 0;
 
@@ -658,6 +677,36 @@
       li.innerHTML = '<span>' + escapeHtml(item.projectId) + '</span><span class="snap-hours">' + item.hours + ' hrs</span>';
       ul.appendChild(li);
     });
+  }
+
+  // Fetches all-time hours (every week with any data), caching the result
+  // in state.allTimeStats. Called after login and again after anything that
+  // changes hours, so both the Enter Hours tab's all-time panel and the
+  // Crew & Projects tab's click-through history stay current. Resolves to
+  // null (rather than rejecting) on failure so callers can fall back
+  // quietly instead of needing their own .catch.
+  function loadAllTimeStats() {
+    return api('getAllTimeStats', {}).then(function (res) {
+      state.allTimeStats = { weeks: res.weeks, crew: res.crew, projects: res.projects };
+      return state.allTimeStats;
+    }).catch(function (err) {
+      console.error('Failed to load all-time stats:', err);
+      return null;
+    });
+  }
+
+  // All-time, per-project-only totals shown on the Enter Hours tab — a
+  // running "how much has gone into each project so far" view, independent
+  // of whichever week happens to be selected.
+  function renderAllTimeProjectPanel() {
+    if (!state.allTimeStats) return;
+    renderProjectHoursList('alltime-project-list', 'alltime-project-empty', state.allTimeStats.projects.total);
+  }
+
+  // Convenience for the many places that change hours and need the
+  // all-time panel (and any open Crew & Projects history) to catch up.
+  function refreshAllTimeStats() {
+    loadAllTimeStats().then(renderAllTimeProjectPanel);
   }
 
   // ---------------------------------------------------------------
@@ -770,8 +819,9 @@
       showStatus('Saved.', 'success');
       // Changing the traffic-light budget changes how much surplus gets
       // reallocated to Retrofit, which the Enter Hours tab's "by project"
-      // sidebar needs to reflect too.
+      // sidebar (and the all-time panel/history) needs to reflect too.
       renderProjectSnapshot();
+      refreshAllTimeStats();
     }).catch(function (err) { showStatus(err.message, 'error'); });
   }
 
@@ -835,8 +885,10 @@
       showStatus('Saved.', 'success');
       // Adding/removing someone from a Retrofit day changes how much of
       // their other-project hours get reallocated to Retrofit, which the
-      // Enter Hours tab's "by project" sidebar needs to reflect too.
+      // Enter Hours tab's "by project" sidebar (and the all-time panel/
+      // history) needs to reflect too.
       renderProjectSnapshot();
+      refreshAllTimeStats();
     }).catch(function (err) { showStatus(err.message, 'error'); });
   }
 
@@ -1102,12 +1154,20 @@
     var sorted = state.crew.slice().sort(function (a, b) { return a.name.localeCompare(b.name); });
     sorted.forEach(function (c) {
       var li = document.createElement('li');
-      li.innerHTML = '<span>' + escapeHtml(c.name) + '</span><span class="pos">' + escapeHtml(c.position || '') + '</span>';
+      // Clicking anywhere on the name/position opens their all-time hours
+      // history; the Delete button stops that click from also doing so.
+      var info = document.createElement('span');
+      info.className = 'manage-item-info';
+      info.innerHTML = '<span class="manage-item-name">' + escapeHtml(c.name) + '</span><span class="pos">' + escapeHtml(c.position || '') + '</span>';
+      info.addEventListener('click', function () { openStatsPanel('crew', c.id, c.name); });
+      li.appendChild(info);
+
       var delBtn = document.createElement('button');
       delBtn.type = 'button';
       delBtn.className = 'manage-delete-btn';
       delBtn.textContent = 'Delete';
-      delBtn.addEventListener('click', function () {
+      delBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
         if (!confirm('Remove ' + c.name + ' from the crew list?\n\nThis won\'t affect any hours already recorded for them.')) return;
         api('deleteCrew', { crewId: c.id }).then(function () {
           state.crew = state.crew.filter(function (x) { return x.id !== c.id; });
@@ -1143,13 +1203,21 @@
     var sorted = state.projects.slice().sort(function (a, b) { return a.id.localeCompare(b.id); });
     sorted.forEach(function (p) {
       var li = document.createElement('li');
-      li.innerHTML = '<span>' + escapeHtml(p.id) + ' &mdash; ' + escapeHtml(p.label) + (p.isRetrofit ? ' <span class="pos">Retrofit</span>' : '') + '</span>';
+      // Clicking anywhere on the label opens the project's all-time hours
+      // history (this works for Retrofit too — only deleting it is blocked).
+      var info = document.createElement('span');
+      info.className = 'manage-item-info';
+      info.innerHTML = '<span class="manage-item-name">' + escapeHtml(p.id) + ' &mdash; ' + escapeHtml(p.label) + '</span>' + (p.isRetrofit ? ' <span class="pos">Retrofit</span>' : '');
+      info.addEventListener('click', function () { openStatsPanel('project', p.id, p.id + ' — ' + p.label); });
+      li.appendChild(info);
+
       if (!p.isRetrofit) {
         var delBtn = document.createElement('button');
         delBtn.type = 'button';
         delBtn.className = 'manage-delete-btn';
         delBtn.textContent = 'Delete';
-        delBtn.addEventListener('click', function () {
+        delBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
           if (!confirm('Remove project ' + p.id + ' — ' + p.label + '?\n\nThis won\'t affect any hours already recorded against it.')) return;
           api('deleteProject', { projectId: p.id }).then(function () {
             state.projects = state.projects.filter(function (x) { return x.id !== p.id; });
@@ -1168,6 +1236,57 @@
     renderManageCrewList();
     renderManageProjectList();
   }
+
+  // ---------------------------------------------------------------
+  // Hours-history overlay — opened by clicking a crew member or project in
+  // the Crew & Projects tab. Always fetches fresh all-time stats on open
+  // (also refreshing state.allTimeStats/the Enter Hours all-time panel as a
+  // side effect) rather than trusting a possibly-stale cache, since this is
+  // exactly the moment someone wants to trust the numbers they're looking at.
+  // ---------------------------------------------------------------
+  var statsOverlay = document.getElementById('stats-overlay');
+  var statsTitleEl = document.getElementById('stats-title');
+  var statsTotalEl = document.getElementById('stats-total');
+  var statsWeeksBody = document.getElementById('stats-weeks-body');
+  var statsEmptyEl = document.getElementById('stats-empty');
+
+  function openStatsPanel(kind, id, title) {
+    statsTitleEl.textContent = title;
+    statsTotalEl.textContent = 'Loading…';
+    statsWeeksBody.innerHTML = '';
+    statsEmptyEl.hidden = true;
+    statsOverlay.hidden = false;
+
+    loadAllTimeStats().then(function (stats) {
+      renderAllTimeProjectPanel();
+      if (statsOverlay.hidden) return; // closed while this was loading
+      if (!stats) { statsTotalEl.textContent = 'Could not load hours history.'; return; }
+
+      var source = kind === 'crew' ? stats.crew : stats.projects;
+      var total = round2(source.total[id] || 0);
+      var byWeek = source.byWeek[id] || {};
+      var weeks = Object.keys(byWeek).sort().reverse(); // most recent first
+
+      statsTotalEl.textContent = weeks.length > 0
+        ? total + ' hrs total, across ' + weeks.length + (weeks.length === 1 ? ' week' : ' weeks') + ' of recorded data'
+        : 'No hours recorded yet.';
+
+      statsWeeksBody.innerHTML = '';
+      weeks.forEach(function (wk) {
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td>' + escapeHtml(formatDisplay(parseISODate(wk), true)) + '</td><td>' + round2(byWeek[wk]) + ' hrs</td>';
+        statsWeeksBody.appendChild(tr);
+      });
+      statsEmptyEl.hidden = weeks.length > 0;
+    });
+  }
+
+  document.getElementById('stats-close-btn').addEventListener('click', function () {
+    statsOverlay.hidden = true;
+  });
+  statsOverlay.addEventListener('click', function (e) {
+    if (e.target === statsOverlay) statsOverlay.hidden = true;
+  });
 
   // ---------------------------------------------------------------
   // Report tab

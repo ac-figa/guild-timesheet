@@ -79,6 +79,10 @@
           <h3 class="snapshot-section-heading">By project</h3>
           <ul id="project-snapshot-list" class="snapshot-list"></ul>
           <p id="project-snapshot-empty" class="muted small">No hours recorded yet this week.</p>
+
+          <h3 class="snapshot-section-heading">Project totals (all time)</h3>
+          <ul id="alltime-project-list" class="snapshot-list"></ul>
+          <p id="alltime-project-empty" class="muted small">No hours recorded yet.</p>
         </aside>
       </div>
     </section>
@@ -156,6 +160,21 @@
         </div>
       </div>
     </section>
+
+    <!-- Hours history for one crew member or project, opened by clicking
+         their name in the Crew & Projects tab -->
+    <div id="stats-overlay" class="stats-overlay" hidden>
+      <div class="stats-panel">
+        <button type="button" id="stats-close-btn" class="stats-close-btn" title="Close">&times;</button>
+        <h2 id="stats-title"></h2>
+        <p id="stats-total" class="stats-total"></p>
+        <table class="stats-weeks-table">
+          <thead><tr><th>Week ending</th><th>Hours</th></tr></thead>
+          <tbody id="stats-weeks-body"></tbody>
+        </table>
+        <p id="stats-empty" class="muted small" hidden>No hours recorded yet.</p>
+      </div>
+    </div>
   </div>
 
   <!-- Template for a single day's project/hours row (Hours Entry tab) -->
